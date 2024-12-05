@@ -1,66 +1,64 @@
-from urllib.request import urlopen
+from bs4 import BeautifulSoup
 import os
-import ssl
-import time
+import pandas as pd
 
-# Base URL of UniSC bachelor degrees page
-base_url = 'https://www.usc.edu.au/study/courses-and-programs/bachelor-degrees-undergraduate-programs'
+# Directory containing the saved degree pages
+input_dir = "usc_degree_pages"
+output_file = "usc_all_degree_details.csv"
 
-# Ignore SSL certificate verification
-ssl_context = ssl.create_default_context()
-ssl_context.check_hostname = False
-ssl_context.verify_mode = ssl.CERT_NONE
+# Extract details from each degree page
+def extract_degree_details(file_path):
+    with open(file_path, "r", encoding="utf-8") as file:
+        soup = BeautifulSoup(file, "html.parser")
+        
+        # Extract main program details
+        program_name = soup.find("h1", class_="program-header--title")
+        entry_threshold = soup.find("h3", text="Entry threshold")
+        duration_domestic = soup.find("strong", audience="domestic")
+        duration_international = soup.find("strong", audience="international")
+        indicative_fees = soup.find("h3", text="Indicative fees")
+        qtac_code = soup.find("h3", text="QTAC code")
+        start_semester = soup.find("h3", text="Start")
 
-# Directory to save degree pages
-output_dir = "usc_degree_pages"
-os.makedirs(output_dir, exist_ok=True)
+        # Extract career outcomes and additional information
+        career_outcomes_section = soup.find("h3", text="Career outcomes")
+        career_outcomes = career_outcomes_section.find_next("ul").get_text(strip=True, separator=" | ") if career_outcomes_section else "N/A"
 
-# Download the page content
-def download_page(url):
-    try:
-        response = urlopen(url, context=ssl_context)
-        return response.read().decode('utf-8')
-    except Exception as e:
-        print(f"Failed to download the page: {e}")
-        return None
+        # Safely extract and handle missing data
+        details = {
+            "Program Name": program_name.get_text(strip=True) if program_name else "N/A",
+            "Entry Threshold": entry_threshold.find_next("strong", class_="key-figure").get_text(strip=True) if entry_threshold else "N/A",
+            "Duration (Domestic)": duration_domestic.get_text(strip=True) if duration_domestic else "N/A",
+            "Duration (International)": duration_international.get_text(strip=True) if duration_international else "N/A",
+            "Indicative Fees": indicative_fees.find_next("strong", class_="key-figure").get_text(strip=True) if indicative_fees else "N/A",
+            "QTAC Code": qtac_code.find_next("strong", class_="key-figure").get_text(strip=True) if qtac_code else "N/A",
+            "Start Semester": start_semester.find_next("li").get_text(strip=True) if start_semester else "N/A",
+            "Career Outcomes": career_outcomes,
+        }
+        
+        # Add all additional sections dynamically
+        additional_sections = soup.find_all("h3")
+        for section in additional_sections:
+            section_title = section.get_text(strip=True)
+            section_value = section.find_next("div").get_text(strip=True) if section.find_next("div") else "N/A"
+            if section_title not in details:  # Avoid overwriting existing fields
+                details[section_title] = section_value
 
-# Extract links to all degree pages from the main page
-def extract_degree_links(page_content):
-    from bs4 import BeautifulSoup
-    soup = BeautifulSoup(page_content, 'html.parser')
-    degree_links = []
-    
-    # Find all links pointing to specific degree pages
-    for a_tag in soup.find_all('a', href=True):
-        href = a_tag['href']
-        if '/study/courses-and-programs/' in href:  # Filter for degree URLs
-            degree_links.append(f"https://www.usc.edu.au{href}" if not href.startswith('http') else href)
-    
-    return list(set(degree_links))  # Remove duplicates
+        return details
 
-# Download and save all degree pages
-def download_all_degree_pages(degree_links):
-    for i, link in enumerate(degree_links):
-        try:
-            print(f"Downloading ({i+1}/{len(degree_links)}): {link}")
-            page_content = download_page(link)
-            if page_content:
-                # Save the HTML content locally
-                filename = os.path.join(output_dir, f"degree_{i+1}.html")
-                with open(filename, "w", encoding="utf-8") as file:
-                    file.write(page_content)
-                print(f"Saved: {filename}")
-            else:
-                print(f"Failed to download: {link}")
-            time.sleep(1)  # Delay to avoid overwhelming the server
-        except Exception as e:
-            print(f"Error downloading {link}: {e}")
+# Parse all saved degree pages
+def parse_all_saved_pages():
+    degree_details = []
+    for filename in os.listdir(input_dir):
+        file_path = os.path.join(input_dir, filename)
+        if filename.endswith(".html"):
+            print(f"Parsing: {file_path}")
+            details = extract_degree_details(file_path)
+            degree_details.append(details)
+    return degree_details
 
-# Main script execution
-main_page_content = download_page(base_url)
-if main_page_content:
-    degree_links = extract_degree_links(main_page_content)
-    print(f"Found {len(degree_links)} degree links.")
-    download_all_degree_pages(degree_links)
-else:
-    print("Failed to download the main page content.")
+# Save to CSV
+degree_data = parse_all_saved_pages()
+df = pd.DataFrame(degree_data)
+df.to_csv(output_file, index=False)
+print(f"Saved all degree details to '{output_file}'.")
