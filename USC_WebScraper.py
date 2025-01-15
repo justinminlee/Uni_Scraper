@@ -62,3 +62,8 @@ degree_data = parse_all_saved_pages()
 df = pd.DataFrame(degree_data)
 df.to_csv(output_file, index=False)
 print(f"Saved all degree details to '{output_file}'.")
+
+
+# 오래 걸리는 작업이므로 시간이 오래걸림
+# International vs Domestic
+# Accuracy of data
